@@ -7,7 +7,8 @@ from ..database.repository import Repository
 from .context import (montar_fontes, validar_evidencia, validar_afirmacao, normalizar,
                       carregar_perfil, resolver_vaga, carregar_historico)
 from .gen_model import QwenClient, VERSAO_PROMPT
-from .schemas import CurriculoPlano, PerfilAnalise, MatchAnalise, EstudosAnalise
+from .schemas import PerfilAnalise, MatchAnalise, EstudosAnalise
+from .curriculo_evidencias import preparar_plano, VERSAO_CURRICULO
 
 
 class CareerService:
@@ -24,6 +25,10 @@ class CareerService:
     def gerar_curriculo(self, usuario_id, entrada):
         perfil = carregar_perfil(self.engine, usuario_id)
         fontes = montar_fontes(perfil)
+        referencias_por_secao = {
+            secao: [ref for ref in fontes if ref.startswith(secao + ":")]
+            for secao in ("experiencias", "formacoes", "cursos", "projetos", "idiomas")
+        }
         vaga = resolver_vaga(self.engine, usuario_id, entrada)
         habilidades = {h['nome'] for h in perfil['habilidades']}
         for secao in ('experiencias', 'formacoes', 'cursos', 'projetos'):
@@ -35,8 +40,18 @@ class CareerService:
             for secao in ('experiencias', 'formacoes', 'cursos', 'projetos'):
                 refs = []
                 for item in getattr(plano, secao):
-                    if not item.fonte.startswith(secao + ':') or item.fonte not in fontes:
-                        raise ValueError(f"Fonte inválida para a seção {secao}.")
+                    permitidas = referencias_por_secao[secao]
+                    if item.fonte not in permitidas:
+                        orientacao = (
+                            f"Use somente estas referências: {permitidas}."
+                            if permitidas
+                            else f"A seção {secao} deve ser uma lista vazia: []."
+                        )
+                        raise ValueError(
+                            f"Fonte inválida para a seção {secao}: {item.fonte!r}. "
+                            f"{orientacao} Não transfira cursos, formações ou projetos "
+                            "para experiências profissionais."
+                        )
                     refs.append(item.fonte)
                     for destaque in item.destaques:
                         validar_afirmacao(destaque, fontes)
@@ -52,15 +67,39 @@ class CareerService:
             if any(h not in habilidades for h in plano.habilidades):
                 raise ValueError("Selecione somente nomes de habilidades presentes no catálogo fornecido.")
 
-        plano = self.qwen.gerar(CurriculoPlano, """Selecione e ordene informações para um currículo aderente à vaga.
-Reescreva o resumo e destaques de forma objetiva, sempre apoiados nas fontes.
-Não transforme projetos acadêmicos em emprego. Não invente métricas ou níveis.
-Listas sem dados devem ficar vazias. Não precisa selecionar todos os itens.
-Em habilidades use os nomes exatos de habilidades_disponiveis. Lacunas são requisitos
-sem evidência, não afirmações de incompetência. Não invente critérios secretos da plataforma.
-Não escreva dados fixos: o código recuperará cargos, instituições, datas e contatos da base.
-Mantenha cada destaque curto e o resultado conciso.""",
-            {"fontes": fontes, "habilidades_disponiveis": sorted(habilidades), "vaga": vaga.model_dump()}, validar)
+        schema, catalogo, converter = preparar_plano(fontes, habilidades)
+
+        def validar_selecao(selecao):
+            validar(converter(selecao))
+
+        selecao = self.qwen.gerar(
+            schema,
+            """Selecione e ordene informações para um currículo aderente à vaga.
+O contrato desta tarefa usa evidencias_ids. Cada ID corresponde a uma fonte
+ e a um trecho literal em catalogo_evidencias. O Python recuperará fonte e trecho.
+Não copie citações na saída nem retorne campos evidencias ou trecho:
+preencha evidencias_ids com IDs do catálogo que sustentem a afirmação.
+O texto de cada afirmação é sua redação adaptada; os IDs indicam sua base factual.
+
+Cada item deve permanecer na seção de sua fonte. Uma seção sem registros
+ deve ser []. Não crie itens para dizer que não há experiência.
+Projetos pessoais/acadêmicos não são empregos. Cursos não são experiências.
+Os destaques de cada item só podem usar IDs da fonte desse próprio item.
+O resumo pode combinar IDs de diferentes fontes.
+Não repita itens, idiomas ou habilidades. Não precisa selecionar todos os itens.
+Use apenas nomes de habilidades_disponiveis. Não invente métricas nem níveis.
+Não transforme objetivo em experiência nem assunto de curso em domínio profissional.
+Lacunas são requisitos sem evidência, não afirmações de incompetência.
+Não invente critérios secretos da plataforma. O código recupera dados fixos,
+como cargos, instituições, datas e contatos. Seja objetivo e conciso.""",
+            {
+                **catalogo,
+                "habilidades_disponiveis": sorted(habilidades),
+                "vaga": vaga.model_dump(),
+            },
+            validar_selecao,
+        )
+        plano = converter(selecao)
         usuario = perfil['usuario']
         conteudo = {
             "schema_versao": "1.0", "idioma": "pt-BR", "titulo": vaga.titulo,
@@ -82,6 +121,7 @@ Mantenha cada destaque curto e o resultado conciso.""",
         auditoria = plano.model_dump()
         resultado = {"conteudo": conteudo, "auditoria": auditoria, "alteracoes": plano.alteracoes,
                      "lacunas": plano.lacunas, "curriculo_id": None, "salvo": False, "meta": self._meta()}
+        resultado['meta']['versao_prompt'] = VERSAO_CURRICULO
         if entrada.salvar:
             # A sessão de leitura já foi fechada. Não mantém transação enquanto a IA pensa.
             with Session(self.engine) as session, session.begin():
@@ -90,7 +130,7 @@ Mantenha cada destaque curto e o resultado conciso.""",
                     vaga_alvo=vaga.titulo, empresa_alvo=vaga.empresa, plataforma_alvo=vaga.plataforma,
                     descricao_vaga=vaga.descricao, conteudo=conteudo,
                     perfil_snapshot=perfil, alteracoes=[{"tipo": "auditoria_ia", "dados": auditoria}],
-                    lacunas=plano.lacunas, modelos_utilizados=[self.qwen.model], versao_prompt=VERSAO_PROMPT,
+                    lacunas=plano.lacunas, modelos_utilizados=[self.qwen.model], versao_prompt=VERSAO_CURRICULO,
                 )
                 resultado['curriculo_id'] = cv.id
             resultado['salvo'] = True

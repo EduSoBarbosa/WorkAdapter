@@ -45,6 +45,8 @@ class FakeTransport:
     def chat(self, **kwargs):
         self.calls.append(kwargs)
         value = self.responses.pop(0)
+        if callable(value):
+            value = value(kwargs)
         if isinstance(value, Exception):
             raise value
         if isinstance(value, dict):
@@ -99,10 +101,20 @@ class TestAI(unittest.TestCase):
         self.assertIsNone(self.client.post('/api/usuarios/1/ia/match',json={'vaga':self.vaga}).json()['percentual'])
 
     def test_curriculo_salvo_snapshot_e_dados_fixos(self):
-        plano = {'resumo':statement(),'experiencias':[],'formacoes':[],'cursos':[],
-                 'projetos':[{'fonte':'projetos:1','destaques':[statement()]}],
-                 'habilidades':['Python'],'idiomas':[],'alteracoes':['Projeto destacado.'],'lacunas':[]}
-        self.fake(plano,plano)
+        def plano(kwargs):
+            entrada = kwargs['messages'][1]['content'].split('DADOS_JSON:\n', 1)[1]
+            dados, _ = json.JSONDecoder().raw_decode(entrada)
+            catalogo = dados['catalogo_evidencias']
+            ref = next(k for k, v in catalogo.items()
+                       if v['fonte'] == 'projetos:1'
+                       and 'Análise de dados com Python e SQL.' in v['trecho'])
+            afirmacao = {'texto': 'Projeto de análise com Python e SQL.',
+                         'evidencias_ids': [ref]}
+            return {'resumo': afirmacao, 'experiencias': [], 'formacoes': [],
+                    'cursos': [], 'projetos': [{'fonte': 'projetos:1',
+                    'destaques': [afirmacao]}], 'habilidades': ['Python'],
+                    'idiomas': [], 'alteracoes': ['Projeto destacado.'], 'lacunas': []}
+        self.fake(plano, plano)
         preview = self.client.post('/api/usuarios/1/ia/curriculos',json={'vaga':self.vaga})
         self.assertEqual(preview.status_code,200,preview.text)
         self.assertFalse(preview.json()['salvo'])
@@ -116,7 +128,13 @@ class TestAI(unittest.TestCase):
             self.assertEqual(cv.conteudo['pessoa']['nome_completo'],'Pessoa teste')
             self.assertEqual(cv.conteudo['projetos'][0]['nome'],'Análise')
             self.assertEqual(cv.perfil_snapshot['usuario']['email'],'nao-enviar@example.com')
-            self.assertEqual(cv.versao_prompt,'workadapter-qwen-v1')
+            self.assertEqual(cv.versao_prompt,'workadapter-curriculo-evidencias-v2')
+            evidencia = cv.alteracoes[0]['dados']['resumo']['evidencias'][0]
+            self.assertEqual(evidencia['fonte'], 'projetos:1')
+            self.assertIn('Análise de dados com Python e SQL.', evidencia['trecho'])
+        pdf = self.client.get(f"/api/usuarios/1/curriculos/{res.json()['curriculo_id']}/pdf")
+        self.assertEqual(pdf.status_code, 200, pdf.text if pdf.status_code != 200 else '')
+        self.assertTrue(pdf.content.startswith(b'%PDF'))
 
     def test_fontes_falsas_e_json_invalido_nao_salvam(self):
         bad=profile_result();bad['resumo']['evidencias'][0]['fonte']='projetos:999'
