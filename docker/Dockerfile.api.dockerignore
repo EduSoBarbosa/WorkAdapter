@@ -1,0 +1,15 @@
+**
+!backend/
+!backend/**
+!docker/
+!docker/Dockerfile.api
+backend/**/__pycache__
+backend/**/*.pyc
+backend/**/*.db*
+backend/**/*.sqlite*
+backend/**/.env*
+backend/**/tests
+backend/**/.venv
+backend/**/venv
+backend/**/*.pdf
+backend/**/*.zip

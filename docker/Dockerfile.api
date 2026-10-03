@@ -1,0 +1,9 @@
+FROM python:3.12-slim
+WORKDIR /app
+COPY backend/api/requirements-api.txt /tmp/deps/api.txt
+COPY backend/agents/requirements-ia.txt /tmp/deps/ia.txt
+COPY backend/pdf/requirements-pdf.txt /tmp/deps/pdf.txt
+RUN python -m pip install --no-cache-dir -r /tmp/deps/api.txt -r /tmp/deps/ia.txt -r /tmp/deps/pdf.txt
+COPY backend/ /app/backend/
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+CMD ["python", "-m", "uvicorn", "backend.api.main_router:app", "--host", "127.0.0.1", "--port", "8000", "--workers", "1"]

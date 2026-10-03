@@ -1,0 +1,1 @@
+"""API local do WorkAdapter."""

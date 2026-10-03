@@ -1,0 +1,1 @@
+"""Rotas separadas por recurso."""

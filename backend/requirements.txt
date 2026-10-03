@@ -1,0 +1,3 @@
+-r api/requirements-api.txt
+-r agents/requirements-ia.txt
+-r pdf/requirements-pdf.txt

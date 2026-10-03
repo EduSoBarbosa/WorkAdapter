@@ -1,0 +1,59 @@
+# Docker Engine nativo no Linux. Execute na raiz WorkAdapter.
+name: workadapter
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    network_mode: host
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    environment:
+      WORKADAPTER_DB: /data/workadapter.db
+      OLLAMA_HOST: http://127.0.0.1:11434
+      QWEN_MODEL: qwen3:8b
+      QWEN_TIMEOUT: "600"
+      QWEN_NUM_CTX: "16384"
+      QWEN_NUM_PREDICT: "4096"
+      QWEN_MAX_INPUT_CHARS: "24000"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - type: bind
+        source: ./backend/database
+        target: /data
+        bind:
+          create_host_path: false
+    command: ["python", "-m", "uvicorn", "backend.api.main_router:app", "--host", "127.0.0.1", "--port", "8000", "--workers", "1"]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    network_mode: host
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

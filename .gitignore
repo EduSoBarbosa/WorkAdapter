@@ -1,0 +1,59 @@
+# Python: ambientes virtuais e cache
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# React / Node: dependências e builds
+node_modules/
+dist/
+.vite/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Variáveis de ambiente e configurações locais
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# SQLite: dados pessoais e arquivos auxiliares
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# Arquivos gerados e enviados pelo usuário
+uploads/
+exports/
+generated/
+tmp/
+temp/
+*.log
+
+# Modelos locais
+ollama_models/
+*.gguf
+*.safetensors
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+

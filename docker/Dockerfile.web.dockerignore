@@ -1,0 +1,11 @@
+**
+!frontend/
+!frontend/**
+!docker/
+!docker/Dockerfile.web
+!docker/nginx.conf
+frontend/node_modules
+frontend/dist
+frontend/.env*
+frontend/.git
+frontend/**/*.log
